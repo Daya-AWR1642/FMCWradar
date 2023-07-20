@@ -1,0 +1,292 @@
+import random
+import numpy as np
+from scipy.io import loadmat
+from scipy import constants
+from pprint import pprint
+import matplotlib.pyplot as plt
+import math
+from mpl_toolkits.mplot3d import Axes3D
+
+
+def get_matrix_subset(matrix, i, j):
+    i = int(i)
+    j = int(j)
+    return [row[i:j] for row in matrix]
+
+def pulsint(x):
+        return np.sqrt(np.sum(np.power(np.absolute(x),2),0)) 
+
+# plot figure 1-----------------------------------------
+
+
+fig = plt.figure(figsize=(5.3, 4.2))
+ax = fig.add_subplot(111,projection='polar')
+
+# -----------------------------------------------------------------
+# plot figure 2------------------------------------------------
+
+fig2 = plt.figure(figsize=(5.3, 4.2))
+ax2 = fig2.add_subplot(111,projection='polar')
+
+# plot figure 3------------------------------------------------
+fig3 = plt.figure(figsize=(5.3, 4.2))
+ax3 = fig3.add_subplot(111,projection='polar')
+# --------------------------------------------------------------------
+
+data = loadmat(r"C:\Users\N CHANDU\Desktop\radar intern\car.mat")
+retVal=data["retVal_1"]
+
+Receiver_0=retVal[0]
+Receiver_1=retVal[1]
+Receiver_2=retVal[2]
+Receiver_3=retVal[3]
+
+frames=100;
+s=len(Receiver_2)/frames;
+m_chirps=s/256;
+nS=256;
+
+c=constants.speed_of_light
+
+
+
+SampleRate = 5000e3
+ADC_Samples = 256
+Freq_Slope = 43.995e12
+idletime = 100e-6
+rampendtime = 87.3e-6
+
+carrier_frequency = 60e9 # 77e9 for 1642
+start_freq = carrier_frequency
+
+ant_ele = 4
+rangeres = (c*SampleRate)/(2*Freq_Slope*ADC_Samples)
+doppleres = c/(2*start_freq*(idletime+rampendtime)*m_chirps)
+
+#############################################################################
+
+for f in range(1,100):
+    
+    data_frame=get_matrix_subset(retVal,(f-1)*s,f*s)
+    data_chirp = np.empty(( 4, 256,0), dtype=complex)
+    
+    
+    for nC in range(1,129):
+        # mchirps=128
+        temp_data = np.empty((4, 128), dtype=complex)
+        temp_data=get_matrix_subset(data_frame,(nC-1)*nS,nC*nS)
+        data_chirp = np.dstack((data_chirp,temp_data))
+     
+    
+    chirp_odd = data_chirp[:,:,1::2]
+    chirp_even = data_chirp[:,:,0::2]
+    
+    permute_chirp_odd= np.transpose(chirp_odd, (1, 0, 2))
+    permute_chirp_even= np.transpose(chirp_even, (1, 0, 2))
+   
+    Nr=256 
+    #length of Chirp (number of samples)
+    Ne=4 
+    # number of receiver
+    Nd=64 
+    # length of chirp loop
+    # for oddd
+    Rangedata_odd = np.empty(( 256,4,64))    
+    
+    depth = 0
+    rows = 256
+    columns = 4
+    Rangedata_odd = np.zeros((rows, columns, depth ), dtype=complex)
+
+    for i in range(0,Nd):
+        empty_matrix = np.zeros((rows,columns), dtype=complex)
+        for j in range(0,Ne):
+            win_rng_odd=permute_chirp_odd[:,j,i]
+            win_rng_odd=np.fft.fft(win_rng_odd)
+            empty_matrix[:,j]=win_rng_odd
+        Rangedata_odd = np.dstack((Rangedata_odd,empty_matrix))
+
+    # Range-data-even-------------------------------------------------------
+    Rangedata_even = np.empty(( 256,4,64))    
+    
+    depth = 0
+    rows = 256
+    columns = 4
+    Rangedata_even = np.zeros((rows, columns, depth ), dtype=complex)
+
+    for i in range(0,Nd):
+        empty_matrix = np.zeros((rows,columns), dtype=complex)
+        for j in range(0,Ne):
+            win_rng_even=permute_chirp_even[:,j,i]
+            win_rng_even=np.fft.fft(win_rng_even)
+            empty_matrix[:,j]=win_rng_even
+        Rangedata_even = np.dstack((Rangedata_even,empty_matrix))
+
+    # Range-data-even-------------------------------------------------------------------
+
+
+   
+
+
+    Rangedata_sum=np.abs(Rangedata_odd)
+    output_3d = np.empty(( 256,1,0))
+    
+
+# do mean but in for loop
+    for i in range(0,64):
+        depth_matrix=Rangedata_sum[:,:,i]
+        depth_matrix=np.mean(depth_matrix,axis=1)
+        
+        depth_matrix = np.reshape(depth_matrix, (256, 1, 1))
+        output_3d= np.dstack((output_3d, depth_matrix))
+
+   
+    Rangedata_sum = np.squeeze(output_3d)
+    # first_slice_output=output_3d[:,:,61]
+    
+
+    Rangedata_sum= np.transpose(Rangedata_sum)
+# plot figure 1-------------------------------------------------------------------------------
+    a = pulsint(Rangedata_sum)
+    ax.clear()
+    ax.plot(np.arange(1, len(a)+1)*rangeres, a)
+    ax.set_title(f"Range Profile FrameID: {f}")
+    ax.set_xlabel("range in m")
+    ax.set_ylabel("received power")
+    plt.pause(0.1)
+
+# plot figure 1-------------------------------------------------------------------------------
+  
+    depth = 64
+    rows = 256
+    columns = 4
+    DopData_odd = np.zeros((rows, columns, depth ), dtype=complex)
+
+    for i in range(0,Ne):
+        for j in range(0,Nr):
+            win_dop_odd = np.reshape(Rangedata_odd[j, i, :], (Nd, 1))
+            win_dop_odd = win_dop_odd.ravel()
+            DopData_odd[j, i, :] = np.fft.fftshift(np.fft.fft(win_dop_odd))
+    
+    DopData_sum = np.mean(np.abs(DopData_odd), axis=1)
+
+    x_axis_img = np.arange(-32, 34) * doppleres
+    y_axis_img = np.arange(1, 256) * rangeres
+
+# altertae plot figure---------------------------------------------------------
+
+    ax2.clear()
+    theta = np.linspace(0, 2 * np.pi, DopData_sum.shape[1])
+    r = np.arange(1, DopData_sum.shape[0]+1) * doppleres
+
+# Plot the data with colors using polar coordinates
+    ax2.pcolormesh(theta, r, DopData_sum, cmap='viridis')
+    ax2.imshow(DopData_sum, extent=(x_axis_img[0], x_axis_img[-1], y_axis_img[0], y_axis_img[-1]), origin='lower', aspect='auto')
+    ax2.set_title(f"Range Profile FrameID: {f}")
+    ax2.set_xlabel("doppler")
+    ax2.set_ylabel("range")
+    plt.pause(0.1)
+
+#    ------------------------------------------------------------------------
+
+# Dop-data-even
+    depth = 64
+    rows = 256
+    columns = 4
+    DopData_even = np.zeros((rows, columns, depth ), dtype=complex)
+
+    for i in range(0,Ne):
+        for j in range(0,Nr):
+            win_dop_even = np.reshape(Rangedata_even[j, i, :], (Nd, 1))
+            win_dop_even = win_dop_even.ravel()
+            DopData_even[j, i, :] = np.fft.fftshift(np.fft.fft(win_dop_even))
+
+
+# -------------------------------------------------------------------------
+    
+    fft_Ang=8;
+    Angle_input = np.hstack((DopData_odd, DopData_even))
+    Ne_1=8;
+
+    depth = 64
+    rows = 256
+    columns = 8
+    AngData = np.zeros((rows, columns, depth ), dtype=complex)
+
+    tailor_matrix = np.array([[0.435251313267307],
+                   [0.802362415786485],
+                   [1.24228077265690],
+                   [1.52010549828931],
+                   [1.52010549828931],
+                   [1.24228077265690],
+                   [0.802362415786485],
+                   [0.435251313267307]])
+
+    for i in range(Nd):
+        for j in range(Nr):
+            lets_check = Angle_input[j, :, i].reshape(Ne_1, 1)
+
+            temp = lets_check[0:4].copy()
+            lets_check[0:4] = lets_check[4:8]
+            lets_check[4:8] = temp
+            
+            win_xcube = lets_check * tailor_matrix
+            fft_result=np.fft.fft(win_xcube, fft_Ang, axis=0)
+            # fft_result = np.fft.fftshift(np.fft.fft(win_xcube, fft_Ang))
+            temp = fft_result[0:4].copy()
+            fft_result[0:4] = fft_result[4:8]
+            fft_result[4:8] = temp
+            AngData[j, :, i] = fft_result.reshape(1,8)
+    
+    
+    w = np.linspace(-1, 1, 8)
+    angle_grid = np.arcsin(w)*180/np.pi
+    rng_grid = np.arange(1, 257)*rangeres
+    
+
+    yvalue = np.zeros((angle_grid.size, rng_grid.size))
+
+    for i in range(angle_grid.size):
+        yvalue[i, :] = (np.sin(angle_grid[i]*np.pi/180))*rng_grid
+
+    xvalue = np.zeros((angle_grid.size, rng_grid.size))
+
+    for i in range(angle_grid.size):
+        xvalue[i, :] = (np.cos(angle_grid[i]*np.pi/180))*rng_grid
+    Xpow = np.abs(AngData)
+    Xpow = np.squeeze(np.sum(Xpow, axis=2) / Xpow.shape[2])
+    Xpow = Xpow.T
+# plot 3--------------------------
+    # fig = plt.figure(figsize=(5.3, 4.2))
+    # ax = fig.add_subplot(111, projection='3d')
+    # surf = ax.plot_surface(yvalue, xvalue, np.abs(Xpow), cmap='coolwarm')
+    # fig.colorbar(surf)
+    # ax.set_xlabel('Angle of arrive(degrees)')
+    # ax.set_ylabel('longitudnal axis Range(meters)')
+    # ax.set_zlabel('Magnitude')
+    # plt.title('Lateral axis range in meters')
+    
+#plot-3---------------------------------------------------- 
+    
+    # ax3.clear()
+    # ax3.plot(yvalue, xvalue, np.abs(Xpow))
+    # ax3.set_title(f"'Lateral axis range in meters {f}")
+    # ax3.set_xlabel('Angle of arrive(degrees)')
+    # ax3.set_ylabel('longitudnal axis Range(meters)')
+    # ax3.set_zlabel('Magnitude')
+    # plt.pause(0.1)
+
+
+    # Create a 2D projection
+# ----------------------------------------------------------------------------------------
+    ax3.clear()
+
+    cont = ax3.contourf(yvalue, xvalue, np.abs(Xpow), cmap = "coolwarm") 
+    ax3.set_xlabel('Angle of arrive(degrees)')
+    ax3.set_ylabel('longitudnal axis Range(meters)')
+    plt.title('2D Projection of Lateral axis range in meters')
+
+# --------------------------------------------------------------------------------------
+   
+
+# plt.show()
